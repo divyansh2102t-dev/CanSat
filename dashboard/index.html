@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🛰️ CanSat 2026 Ground Control — Team Alpha (CAN-Team-07)</title>
+  <!-- Chart.js for real-time telemetry plots -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg-main: #0a0e17;
+      --bg-panel: #111827;
+      --bg-card: #1f293d;
+      --accent-cyan: #00f0ff;
+      --accent-green: #00ff88;
+      --accent-orange: #ff9900;
+      --accent-red: #ff3366;
+      --text-main: #e2e8f0;
+      --text-dim: #94a3b8;
+      --border-color: #334155;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    }
+
+    body {
+      background: var(--bg-main);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* HEADER */
+    header {
+      background: linear-gradient(180deg, #131d31 0%, #0d1524 100%);
+      border-bottom: 2px solid var(--border-color);
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand h1 {
+      font-size: 1.3rem;
+      color: var(--accent-cyan);
+      letter-spacing: 1px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .brand .badge {
+      background: #0284c7;
+      color: #fff;
+      font-size: 0.75rem;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    button {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-connect {
+      background: #0284c7;
+      color: white;
+    }
+    .btn-connect:hover { background: #0369a1; }
+
+    .btn-sim {
+      background: #475569;
+      color: white;
+    }
+    .btn-sim:hover { background: #334155; }
+
+    .btn-export {
+      background: #059669;
+      color: white;
+    }
+    .btn-export:hover { background: #047857; }
+
+    .btn-clear {
+      background: #dc2626;
+      color: white;
+    }
+    .btn-clear:hover { background: #b91c1c; }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      background: #0f172a;
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      font-size: 0.8rem;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #64748b;
+    }
+    .status-dot.active {
+      background: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+    }
+
+    /* MAIN CONTAINER */
+    main {
+      padding: 16px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      flex: 1;
+    }
+
+    /* MISSION STATUS BANNER */
+    .mission-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .metric-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .metric-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--accent-cyan);
+    }
+
+    .metric-card.green::before { background: var(--accent-green); }
+    .metric-card.orange::before { background: var(--accent-orange); }
+    .metric-card.red::before { background: var(--accent-red); }
+
+    .metric-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      letter-spacing: 0.5px;
+    }
+
+    .metric-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #fff;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric-unit {
+      font-size: 0.85rem;
+      font-weight: 400;
+      color: var(--text-dim);
+      margin-left: 4px;
+    }
+
+    /* GRID LAYOUT */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 1024px) {
+      .dashboard-grid { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 8px;
+    }
+
+    .panel-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--accent-cyan);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* CHARTS GRID */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    @media (max-width: 768px) {
+      .charts-grid { grid-template-columns: 1fr; }
+    }
+
+    .chart-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 10px;
+      height: 220px;
+    }
+
+    /* 3D ATTITUDE VIEWER */
+    #attitudeCanvas {
+      width: 100%;
+      height: 200px;
+      background: #0b1120;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+    }
+
+    /* TELEMETRY TABLE */
+    .table-container {
+      max-height: 280px;
+      overflow-y: auto;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.75rem;
+      font-variant-numeric: tabular-nums;
+      text-align: left;
+    }
+
+    th {
+      background: #1e293b;
+      color: var(--accent-cyan);
+      padding: 6px 10px;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    td {
+      padding: 5px 10px;
+      border-bottom: 1px solid #1e293b;
+      color: var(--text-main);
+    }
+
+    tr:nth-child(even) { background: rgba(30, 41, 59, 0.4); }
+
+    /* FLIGHT PHASE BADGE */
+    .phase-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .phase-standby { background: #475569; color: #fff; }
+    .phase-ascent { background: #0284c7; color: #fff; }
+    .phase-descent { background: #eab308; color: #000; }
+    .phase-landed { background: #16a34a; color: #fff; }
+
+    /* FOOTER */
+    footer {
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border-color);
+      padding: 8px 24px;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header>
+    <div class="brand">
+      <span style="font-size: 1.6rem;">🛰️</span>
+      <div>
+        <h1>CanSat Mission Control</h1>
+        <div style="font-size: 0.8rem; color: var(--text-dim);">SVNIT Physics Club 2026 • <strong style="color: var(--accent-cyan);">Team Alpha (CAN-Team-07)</strong></div>
+      </div>
+      <span class="badge">433 MHz LoRa</span>
+    </div>
+
+    <div class="controls">
+      <div class="status-pill">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Disconnected</span>
+      </div>
+      <button class="btn-connect" id="btnConnect" onclick="toggleSerial()">🔌 Connect Ground Station</button>
+      <button class="btn-sim" id="btnSim" onclick="toggleSimulation()">🎮 Simulated Flight</button>
+      <button class="btn-export" onclick="exportCSV()">📥 Export CSV (4h Report)</button>
+      <button class="btn-clear" onclick="clearData()">🗑️ Clear</button>
+    </div>
+  </header>
+
+  <!-- MAIN VIEW -->
+  <main>
+    <!-- TOP TELEMETRY STRIP -->
+    <div class="mission-bar">
+      <div class="metric-card">
+        <span class="metric-label">Relative Altitude</span>
+        <div class="metric-value"><span id="valAlt">0.0</span><span class="metric-unit">m</span></div>
+      </div>
+
+      <div class="metric-card green" id="cardDescent">
+        <span class="metric-label">Descent Rate</span>
+        <div class="metric-value"><span id="valDescent">0.0</span><span class="metric-unit">m/s</span></div>
+      </div>
+
+      <div class="metric-card">
+        <span class="metric-label">Atmospheric Pressure</span>
+        <div class="metric-value"><span id="valPressure">1013.25</span><span class="metric-unit">hPa</span></div>
+      </div>
+
+      <div class="metric-card orange">
+        <span class="metric-label">Temperature</span>
+        <div class="metric-value"><span id="valTemp">25.0</span><span class="metric-unit">°C</span></div>
+      </div>
+
+      <div class="metric-card">
+        <span class="metric-label">Flight State</span>
+        <div class="metric-value" style="font-size: 1.2rem; padding-top: 4px;">
+          <span class="phase-badge phase-standby" id="valPhase">STANDBY / GROUND</span>
+        </div>
+      </div>
+
+      <div class="metric-card">
+        <span class="metric-label">Packets Transmitted</span>
+        <div class="metric-value"><span id="valPacketCount">0</span><span class="metric-unit">pkts</span></div>
+      </div>
+    </div>
+
+    <!-- MAIN TWO-COLUMN DASHBOARD -->
+    <div class="dashboard-grid">
+      
+      <!-- LEFT: CHARTS -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">📈 Real-Time Telemetry Plots</span>
+          <span style="font-size: 0.75rem; color: var(--text-dim);" id="timeDisplay">T+ 00:00:00</span>
+        </div>
+
+        <div class="charts-grid">
+          <div class="chart-box">
+            <canvas id="chartAltitude"></canvas>
+          </div>
+          <div class="chart-box">
+            <canvas id="chartDescent"></canvas>
+          </div>
+          <div class="chart-box">
+            <canvas id="chartEnvironment"></canvas>
+          </div>
+          <div class="chart-box">
+            <canvas id="chartAccel"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: 3D ATTITUDE & SENSOR READOUTS -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">🧭 3D Orientation & Dynamics</span>
+          <span style="font-size: 0.75rem; color: var(--accent-cyan);">MPU6050 Kalman</span>
+        </div>
+
+        <!-- 3D Canvas -->
+        <canvas id="attitudeCanvas"></canvas>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; text-align: center;">
+          <div style="background: var(--bg-card); padding: 8px; border-radius: 4px;">
+            <div style="font-size: 0.7rem; color: var(--text-dim);">ROLL</div>
+            <div style="font-size: 1.1rem; font-weight: 700;" id="valRoll">0.0°</div>
+          </div>
+          <div style="background: var(--bg-card); padding: 8px; border-radius: 4px;">
+            <div style="font-size: 0.7rem; color: var(--text-dim);">PITCH</div>
+            <div style="font-size: 1.1rem; font-weight: 700;" id="valPitch">0.0°</div>
+          </div>
+          <div style="background: var(--bg-card); padding: 8px; border-radius: 4px;">
+            <div style="font-size: 0.7rem; color: var(--text-dim);">YAW</div>
+            <div style="font-size: 1.1rem; font-weight: 700;" id="valYaw">0.0°</div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; text-align: center;">
+          <div style="background: var(--bg-card); padding: 8px; border-radius: 4px;">
+            <div style="font-size: 0.7rem; color: var(--text-dim);">AX (m/s²)</div>
+            <div style="font-size: 1rem; font-weight: 700; color: #38bdf8;" id="valAX">0.00</div>
+          </div>
+          <div style="background: var(--bg-card); padding: 8px; border-radius: 4px;">
+            <div style="font-size: 0.7rem; color: var(--text-dim);">AY (m/s²)</div>
+            <div style="font-size: 1rem; font-weight: 700; color: #a855f7;" id="valAY">0.00</div>
+          </div>
+          <div style="background: var(--bg-card); padding: 8px; border-radius: 4px;">
+            <div style="font-size: 0.7rem; color: var(--text-dim);">AZ (m/s²)</div>
+            <div style="font-size: 1rem; font-weight: 700; color: #34d399;" id="valAZ">0.00</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- BOTTOM: PACKET STREAM TABLE -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">📜 Telemetry Packet Stream</span>
+        <span style="font-size: 0.75rem; color: var(--text-dim);" id="packetRate">Packet Rate: 0.0 Hz</span>
+      </div>
+
+      <div class="table-container">
+        <table id="telemetryTable">
+          <thead>
+            <tr>
+              <th>Packet #</th>
+              <th>Time</th>
+              <th>Alt (m)</th>
+              <th>Rate (m/s)</th>
+              <th>Pressure (Pa)</th>
+              <th>Temp (°C)</th>
+              <th>Roll (°)</th>
+              <th>Pitch (°)</th>
+              <th>Yaw (°)</th>
+              <th>AX</th>
+              <th>AY</th>
+              <th>AZ</th>
+              <th>Raw Line</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <!-- Dynamic Telemetry Rows -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <!-- FOOTER -->
+  <footer>
+    <span>Designed for Physics Club SVNIT CanSat Competition 2026</span>
+    <span>Complies with Rulebook Standard Packet Protocol (CAN-Team-07)</span>
+  </footer>
+
+  <!-- SCRIPT -->
+  <script>
+    // ================= STATE & DATA STORAGE =================
+    let telemetryHistory = [];
+    let isConnected = false;
+    let isSimulating = false;
+    let simInterval = null;
+    let port = null;
+    let reader = null;
+    let lastAlt = 0;
+    let lastTime = 0;
+
+    const MAX_POINTS = 50;
+
+    // ================= CHART.JS CONFIGURATION =================
+    const commonChartOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#64748b', maxTicksLimit: 6 } },
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#64748b' } }
+      },
+      plugins: {
+        legend: { labels: { color: '#94a3b8', boxWidth: 10, font: { size: 10 } } }
+      }
+    };
+
+    const chartAltitude = new Chart(document.getElementById('chartAltitude'), {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Altitude (m)',
+          borderColor: '#00f0ff',
+          backgroundColor: 'rgba(0, 240, 255, 0.1)',
+          data: [],
+          fill: true,
+          tension: 0.2
+        }]
+      },
+      options: commonChartOptions
+    });
+
+    const chartDescent = new Chart(document.getElementById('chartDescent'), {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Descent Speed (m/s)',
+          borderColor: '#ff9900',
+          backgroundColor: 'rgba(255, 153, 0, 0.1)',
+          data: [],
+          fill: true,
+          tension: 0.2
+        }]
+      },
+      options: commonChartOptions
+    });
+
+    const chartEnvironment = new Chart(document.getElementById('chartEnvironment'), {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'Pressure (hPa)', borderColor: '#a855f7', data: [], yAxisID: 'y' },
+          { label: 'Temp (°C)', borderColor: '#f43f5e', data: [], yAxisID: 'y1' }
+        ]
+      },
+      options: {
+        ...commonChartOptions,
+        scales: {
+          x: commonChartOptions.scales.x,
+          y: { ...commonChartOptions.scales.y, position: 'left' },
+          y1: { ...commonChartOptions.scales.y, position: 'right', grid: { drawOnChartArea: false } }
+        }
+      }
+    });
+
+    const chartAccel = new Chart(document.getElementById('chartAccel'), {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'AX', borderColor: '#38bdf8', data: [] },
+          { label: 'AY', borderColor: '#a855f7', data: [] },
+          { label: 'AZ', borderColor: '#34d399', data: [] }
+        ]
+      },
+      options: commonChartOptions
+    });
+
+    // ================= 3D ATTITUDE RENDERING (CANVAS) =================
+    const canvas = document.getElementById('attitudeCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function resizeCanvas() {
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function draw3DBox(roll, pitch, yaw) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const size = Math.min(cx, cy) * 0.7;
+
+      // Convert angles to radians
+      const r = (roll * Math.PI) / 180;
+      const p = (pitch * Math.PI) / 180;
+      const y = (yaw * Math.PI) / 180;
+
+      // 3D Cube vertices (Cylinder-like approximation)
+      const nodes = [
+        [-1, -2, -1], [1, -2, -1], [1, 2, -1], [-1, 2, -1],
+        [-1, -2,  1], [1, -2,  1], [1, 2,  1], [-1, 2,  1]
+      ];
+
+      const edges = [
+        [0,1], [1,2], [2,3], [3,0],
+        [4,5], [5,6], [6,7], [7,4],
+        [0,4], [1,5], [2,6], [3,7]
+      ];
+
+      const projected = [];
+
+      nodes.forEach(n => {
+        let x = n[0] * (size * 0.45);
+        let yCoord = n[1] * (size * 0.45);
+        let z = n[2] * (size * 0.45);
+
+        // Rotation around X (Pitch)
+        let y1 = yCoord * Math.cos(p) - z * Math.sin(p);
+        let z1 = yCoord * Math.sin(p) + z * Math.cos(p);
+
+        // Rotation around Y (Roll)
+        let x2 = x * Math.cos(r) + z1 * Math.sin(r);
+        let z2 = -x * Math.sin(r) + z1 * Math.cos(r);
+
+        // Rotation around Z (Yaw)
+        let x3 = x2 * Math.cos(y) - y1 * Math.sin(y);
+        let y3 = x2 * Math.sin(y) + y1 * Math.cos(y);
+
+        projected.push([cx + x3, cy + y3]);
+      });
+
+      // Draw Edges
+      ctx.lineWidth = 2;
+      edges.forEach((e, idx) => {
+        ctx.strokeStyle = idx < 4 ? '#00f0ff' : idx < 8 ? '#00ff88' : '#38bdf8';
+        ctx.beginPath();
+        ctx.moveTo(projected[e[0]][0], projected[e[0]][1]);
+        ctx.lineTo(projected[e[1]][0], projected[e[1]][1]);
+        ctx.stroke();
+      });
+
+      // Draw Horizon indicator
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(0, cy);
+      ctx.lineTo(canvas.width, cy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    draw3DBox(0, 0, 0);
+
+    // ================= PARSE TELEMETRY PACKET =================
+    // Protocol: CAN-Team-07; P-001; Ti-00:00:01:250; A-30.2; Pr-101325.00; T-24.5; Ro-1.2; Pi-0.5; Ya-0.0; AX-0.02; AY-0.15; AZ-9.81;
+    function parseTelemetryLine(line) {
+      line = line.trim();
+      if (!line || !line.includes('CAN-Team-')) return null;
+
+      try {
+        const tokens = line.split(';').map(t => t.trim()).filter(t => t.length > 0);
+        let data = {};
+
+        tokens.forEach(t => {
+          if (t.startsWith('CAN-Team-')) data.team = t;
+          else if (t.startsWith('P-')) data.packet = parseInt(t.replace('P-', ''));
+          else if (t.startsWith('Ti-')) data.time = t.replace('Ti-', '');
+          else if (t.startsWith('A-')) data.altitude = parseFloat(t.replace('A-', ''));
+          else if (t.startsWith('Pr-')) data.pressure = parseFloat(t.replace('Pr-', ''));
+          else if (t.startsWith('T-')) data.temperature = parseFloat(t.replace('T-', ''));
+          else if (t.startsWith('Ro-')) data.roll = parseFloat(t.replace('Ro-', ''));
+          else if (t.startsWith('Pi-')) data.pitch = parseFloat(t.replace('Pi-', ''));
+          else if (t.startsWith('Ya-')) data.yaw = parseFloat(t.replace('Ya-', ''));
+          else if (t.startsWith('AX-')) data.ax = parseFloat(t.replace('AX-', ''));
+          else if (t.startsWith('AY-')) data.ay = parseFloat(t.replace('AY-', ''));
+          else if (t.startsWith('AZ-')) data.az = parseFloat(t.replace('AZ-', ''));
+        });
+
+        data.raw = line;
+        return data;
+      } catch (e) {
+        console.error('Packet parsing error:', e, line);
+        return null;
+      }
+    }
+
+    // ================= PROCESS INCOMING TELEMETRY =================
+    function processPacket(pkt) {
+      if (!pkt) return;
+
+      // Calculate instantaneous vertical descent speed (m/s)
+      const now = performance.now();
+      let descentRate = 0;
+      if (lastTime > 0) {
+        const dt = (now - lastTime) / 1000;
+        if (dt > 0.05) {
+          descentRate = (lastAlt - pkt.altitude) / dt;
+          if (descentRate < 0) descentRate = 0;
+        }
+      }
+      lastAlt = pkt.altitude;
+      lastTime = now;
+      pkt.descentRate = descentRate;
+
+      telemetryHistory.push(pkt);
+
+      // 1. Update Top Metric Displays
+      document.getElementById('valAlt').innerText = pkt.altitude.toFixed(1);
+      document.getElementById('valDescent').innerText = descentRate.toFixed(1);
+      document.getElementById('valPressure').innerText = (pkt.pressure / 100).toFixed(2);
+      document.getElementById('valTemp').innerText = pkt.temperature.toFixed(1);
+      document.getElementById('valPacketCount').innerText = pkt.packet || telemetryHistory.length;
+      document.getElementById('timeDisplay').innerText = `T+ ${pkt.time || '00:00:00'}`;
+
+      // Descent speed safety indicator (Rule: <= 5 m/s)
+      const descentCard = document.getElementById('cardDescent');
+      if (descentRate > 5.0) {
+        descentCard.className = 'metric-card red';
+      } else if (descentRate > 0.5) {
+        descentCard.className = 'metric-card green';
+      } else {
+        descentCard.className = 'metric-card';
+      }
+
+      // Flight State Machine
+      const phaseBadge = document.getElementById('valPhase');
+      if (pkt.altitude < 1.0 && telemetryHistory.length < 15) {
+        phaseBadge.innerText = 'STANDBY (GROUND)';
+        phaseBadge.className = 'phase-badge phase-standby';
+      } else if (pkt.altitude >= 1.0 && descentRate < 0.5) {
+        phaseBadge.innerText = 'ASCENT / DRONE LIFT';
+        phaseBadge.className = 'phase-badge phase-ascent';
+      } else if (pkt.altitude >= 2.0 && descentRate >= 0.5) {
+        phaseBadge.innerText = 'PARACHUTE DESCENT';
+        phaseBadge.className = 'phase-badge phase-descent';
+      } else if (pkt.altitude < 1.0 && telemetryHistory.length >= 15) {
+        phaseBadge.innerText = 'LANDED / RECOVERY';
+        phaseBadge.className = 'phase-badge phase-landed';
+      }
+
+      // 2. Update 3D Orientation & Dynamics
+      document.getElementById('valRoll').innerText = `${pkt.roll.toFixed(1)}°`;
+      document.getElementById('valPitch').innerText = `${pkt.pitch.toFixed(1)}°`;
+      document.getElementById('valYaw').innerText = `${pkt.yaw.toFixed(1)}°`;
+      document.getElementById('valAX').innerText = pkt.ax.toFixed(2);
+      document.getElementById('valAY').innerText = pkt.ay.toFixed(2);
+      document.getElementById('valAZ').innerText = pkt.az.toFixed(2);
+
+      draw3DBox(pkt.roll, pkt.pitch, pkt.yaw);
+
+      // 3. Update Real-Time Charts
+      const label = pkt.time ? pkt.time.split(':').slice(1).join(':') : `P${pkt.packet}`;
+
+      function pushChart(chart, label, values) {
+        chart.data.labels.push(label);
+        values.forEach((v, idx) => chart.data.datasets[idx].data.push(v));
+        if (chart.data.labels.length > MAX_POINTS) {
+          chart.data.labels.shift();
+          chart.data.datasets.forEach(ds => ds.data.shift());
+        }
+        chart.update();
+      }
+
+      pushChart(chartAltitude, label, [pkt.altitude]);
+      pushChart(chartDescent, label, [descentRate]);
+      pushChart(chartEnvironment, label, [pkt.pressure / 100, pkt.temperature]);
+      pushChart(chartAccel, label, [pkt.ax, pkt.ay, pkt.az]);
+
+      // 4. Update Telemetry Table (Keep latest 30 in DOM)
+      const tbody = document.getElementById('tableBody');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>P-${pkt.packet || telemetryHistory.length}</strong></td>
+        <td>${pkt.time || '-'}</td>
+        <td style="color:var(--accent-cyan); font-weight:600;">${pkt.altitude.toFixed(1)}</td>
+        <td>${descentRate.toFixed(1)}</td>
+        <td>${pkt.pressure.toFixed(2)}</td>
+        <td>${pkt.temperature.toFixed(1)}</td>
+        <td>${pkt.roll.toFixed(1)}</td>
+        <td>${pkt.pitch.toFixed(1)}</td>
+        <td>${pkt.yaw.toFixed(1)}</td>
+        <td>${pkt.ax.toFixed(2)}</td>
+        <td>${pkt.ay.toFixed(2)}</td>
+        <td>${pkt.az.toFixed(2)}</td>
+        <td style="font-family:monospace; color:#64748b;">${pkt.raw}</td>
+      `;
+      tbody.insertBefore(tr, tbody.firstChild);
+      while (tbody.children.length > 50) {
+        tbody.removeChild(tbody.lastChild);
+      }
+    }
+
+    // ================= WEB SERIAL API (LIVE ESP32 CONNECTION) =================
+    async function toggleSerial() {
+      if (isConnected) {
+        if (reader) await reader.cancel();
+        if (port) await port.close();
+        isConnected = false;
+        document.getElementById('statusDot').className = 'status-dot';
+        document.getElementById('statusText').innerText = 'Disconnected';
+        document.getElementById('btnConnect').innerText = '🔌 Connect Ground Station';
+        return;
+      }
+
+      if (!('serial' in navigator)) {
+        alert('Web Serial is supported in Google Chrome, Edge, or Opera desktop browsers.');
+        return;
+      }
+
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: 115200 });
+
+        isConnected = true;
+        document.getElementById('statusDot').className = 'status-dot active';
+        document.getElementById('statusText').innerText = 'Connected (115200)';
+        document.getElementById('btnConnect').innerText = 'Disconnect';
+
+        const textDecoder = new TextDecoderStream();
+        port.readable.pipeTo(textDecoder.writable);
+        reader = textDecoder.readable.getReader();
+
+        let buffer = '';
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += value;
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // keep remainder
+
+          for (const line of lines) {
+            const pkt = parseTelemetryLine(line);
+            if (pkt) processPacket(pkt);
+          }
+        }
+      } catch (err) {
+        console.error('Serial connection error:', err);
+        isConnected = false;
+        document.getElementById('statusDot').className = 'status-dot';
+        document.getElementById('statusText').innerText = 'Connection Error';
+        document.getElementById('btnConnect').innerText = '🔌 Connect Ground Station';
+      }
+    }
+
+    // ================= SIMULATION MODE (TESTING WITHOUT HARDWARE) =================
+    function toggleSimulation() {
+      if (isSimulating) {
+        clearInterval(simInterval);
+        isSimulating = false;
+        document.getElementById('btnSim').innerText = '🎮 Simulated Flight';
+        document.getElementById('statusDot').className = 'status-dot';
+        document.getElementById('statusText').innerText = 'Disconnected';
+        return;
+      }
+
+      isSimulating = true;
+      document.getElementById('btnSim').innerText = '⏹️ Stop Simulation';
+      document.getElementById('statusDot').className = 'status-dot active';
+      document.getElementById('statusText').innerText = 'Simulation Running';
+
+      let simPacket = 1;
+      let simAlt = 0;
+      let phase = 'ascent'; // ascent -> descent -> landed
+      let simTimeMs = 0;
+
+      simInterval = setInterval(() => {
+        simTimeMs += 500;
+
+        if (phase === 'ascent') {
+          simAlt += 2.5; // rising to 100ft (~30.48m)
+          if (simAlt >= 30.5) phase = 'descent';
+        } else if (phase === 'descent') {
+          simAlt -= 1.75; // descending at 3.5 m/s (1.75m per 0.5s)
+          if (simAlt <= 0) {
+            simAlt = 0;
+            phase = 'landed';
+          }
+        }
+
+        const hrs = Math.floor(simTimeMs / 3600000);
+        const mins = Math.floor((simTimeMs % 3600000) / 60000);
+        const secs = Math.floor((simTimeMs % 60000) / 1000);
+        const ms = simTimeMs % 1000;
+        const timeStr = `${String(hrs).padStart(2,'0')}:${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}:${String(ms).padStart(3,'0')}`;
+
+        const roll = Math.sin(simPacket * 0.3) * 4.5;
+        const pitch = Math.cos(simPacket * 0.3) * 3.2;
+        const yaw = (simPacket * 2.0) % 360;
+
+        const pNum = String(simPacket).padStart(3, '0');
+        const simulatedLine = `CAN-Team-07; P-${pNum}; Ti-${timeStr}; A-${simAlt.toFixed(1)}; Pr-${(101325 - simAlt * 12).toFixed(2)}; T-${(24.5 - simAlt * 0.05).toFixed(1)}; Ro-${roll.toFixed(1)}; Pi-${pitch.toFixed(1)}; Ya-${yaw.toFixed(1)}; AX-0.05; AY-0.12; AZ-${(phase==='descent'? -3.5 : 9.81).toFixed(2)};`;
+
+        const pkt = parseTelemetryLine(simulatedLine);
+        processPacket(pkt);
+        simPacket++;
+      }, 500);
+    }
+
+    // ================= EXPORT CSV FOR 4-HOUR DATA ANALYSIS =================
+    function exportCSV() {
+      if (telemetryHistory.length === 0) {
+        alert('No telemetry data recorded yet!');
+        return;
+      }
+
+      let csv = 'Packet,Timestamp,Altitude_m,Descent_Rate_mps,Pressure_Pa,Temperature_C,Roll_deg,Pitch_deg,Yaw_deg,AX_mps2,AY_mps2,AZ_mps2,Raw_Line\n';
+
+      telemetryHistory.forEach(p => {
+        csv += `${p.packet || ''},${p.time || ''},${p.altitude || 0},${p.descentRate ? p.descentRate.toFixed(2) : 0},${p.pressure || 0},${p.temperature || 0},${p.roll || 0},${p.pitch || 0},${p.yaw || 0},${p.ax || 0},${p.ay || 0},${p.az || 0},"${p.raw || ''}"\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `CanSat_CAN-Team-07_FlightData_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function clearData() {
+      telemetryHistory = [];
+      chartAltitude.data.labels = [];
+      chartAltitude.data.datasets[0].data = [];
+      chartAltitude.update();
+
+      chartDescent.data.labels = [];
+      chartDescent.data.datasets[0].data = [];
+      chartDescent.update();
+
+      chartEnvironment.data.labels = [];
+      chartEnvironment.data.datasets.forEach(d => d.data = []);
+      chartEnvironment.update();
+
+      chartAccel.data.labels = [];
+      chartAccel.data.datasets.forEach(d => d.data = []);
+      chartAccel.update();
+
+      document.getElementById('tableBody').innerHTML = '';
+      document.getElementById('valPacketCount').innerText = '0';
+    }
+  </script>
+</body>
+</html>

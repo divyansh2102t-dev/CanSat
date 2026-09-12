@@ -1,29 +1,24 @@
 /**
  * ============================================================================
- * 📡 CanSat 2026 - Ground Station Receiver (Practice & Local Testing)
- * Team Name: Team Alpha (CAN-Team-07)
+ * 📡 CanSat 2026 - Ground Station Receiver (Team 21 Gateway)
  * Target Board: ESP32 DevKit V1
  * Module: SX1278 LoRa 433 MHz (SPI)
- * ============================================================================
- * 
- * Functions:
- * 1. Receives 433 MHz LoRa packets transmitted by CanSat.
- * 2. Formats packets with RSSI and sends to Serial for the Web Dashboard.
- * 3. Sync Word: 0xA5 (Launch) / 0xF3 (Testing)
  * ============================================================================
  */
 
 #include <SPI.h>
 #include <LoRa.h>
 
-// Pin Definitions for ESP32
-#define PIN_LORA_SS   5
-#define PIN_LORA_RST  14
-#define PIN_LORA_DIO0 2
-#define PIN_LED       4
+#define LORA_SCK   18
+#define LORA_MISO  19
+#define LORA_MOSI  23
+#define LORA_SS    5
+#define LORA_RST   14
+#define LORA_DIO0  2
+#define LED_PIN    4
 
 #define LORA_FREQUENCY 433E6
-#define ACTIVE_SYNC_WORD 0xA5 // Match CanSat sync word
+#define ACTIVE_SYNC_WORD 0xA5 // 0xA5 for launch, 0xF3 for testing
 
 unsigned long totalPacketsReceived = 0;
 
@@ -31,14 +26,15 @@ void setup() {
   Serial.begin(115200);
   while (!Serial);
 
-  pinMode(PIN_LED, OUTPUT);
-  digitalWrite(PIN_LED, HIGH);
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH);
 
   Serial.println(F("============================================="));
-  Serial.println(F("📡 CanSat Ground Station Receiver - Team Alpha"));
+  Serial.println(F("📡 CanSat Ground Station Receiver - CAN-Team-21"));
   Serial.println(F("============================================="));
 
-  LoRa.setPins(PIN_LORA_SS, PIN_LORA_RST, PIN_LORA_DIO0);
+  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
+  LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
 
   Serial.print(F("Initializing LoRa Receiver @ 433 MHz... "));
   while (!LoRa.begin(LORA_FREQUENCY)) {
@@ -50,6 +46,7 @@ void setup() {
   LoRa.setSpreadingFactor(7);
   LoRa.setSignalBandwidth(125E3);
   LoRa.setCodingRate4(5);
+  LoRa.enableCrc();
 
   Serial.println(F("SUCCESS!"));
   Serial.println(F("Listening for incoming CanSat telemetry packets...\n"));
@@ -58,7 +55,7 @@ void setup() {
 void loop() {
   int packetSize = LoRa.parsePacket();
   if (packetSize) {
-    digitalWrite(PIN_LED, LOW); // Flash on receive
+    digitalWrite(LED_PIN, LOW); // Flash LED on packet receipt
 
     String rawPacket = "";
     while (LoRa.available()) {
@@ -67,17 +64,11 @@ void loop() {
 
     int rssi = LoRa.packetRssi();
     float snr = LoRa.packetSnr();
-
     totalPacketsReceived++;
 
-    // Print to Serial for Web Dashboard parsing
-    Serial.print(rawPacket);
-    Serial.print(F(" [RSSI: "));
-    Serial.print(rssi);
-    Serial.print(F(" dBm, SNR: "));
-    Serial.print(snr, 1);
-    Serial.println(F(" dB]"));
+    // Print raw packet to Serial for Web Dashboard parsing
+    Serial.println(rawPacket);
 
-    digitalWrite(PIN_LED, HIGH);
+    digitalWrite(LED_PIN, HIGH);
   }
-}\n
+}

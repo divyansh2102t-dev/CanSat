@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>🛰️ CanSat 2026 Ground Control — Team Alpha (CAN-Team-07)</title>
+  <title>🛰️ CanSat 2026 Ground Control — CAN-Team-21</title>
   <!-- Chart.js for real-time telemetry plots -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
@@ -330,7 +330,7 @@
       <span style="font-size: 1.6rem;">🛰️</span>
       <div>
         <h1>CanSat Mission Control</h1>
-        <div style="font-size: 0.8rem; color: var(--text-dim);">SVNIT Physics Club 2026 • <strong style="color: var(--accent-cyan);">Team Alpha (CAN-Team-07)</strong></div>
+        <div style="font-size: 0.8rem; color: var(--text-dim);">SVNIT Physics Club 2026 • <strong style="color: var(--accent-cyan);">CAN-Team-21</strong></div>
       </div>
       <span class="badge">433 MHz LoRa</span>
     </div>
@@ -414,7 +414,7 @@
       <div class="panel">
         <div class="panel-header">
           <span class="panel-title">🧭 3D Orientation & Dynamics</span>
-          <span style="font-size: 0.75rem; color: var(--accent-cyan);">MPU6050 Kalman</span>
+          <span style="font-size: 0.75rem; color: var(--accent-cyan);">MPU6500 Filtered</span>
         </div>
 
         <!-- 3D Canvas -->
@@ -473,9 +473,9 @@
               <th>Roll (°)</th>
               <th>Pitch (°)</th>
               <th>Yaw (°)</th>
-              <th>AX</th>
-              <th>AY</th>
-              <th>AZ</th>
+              <th>AX (m/s²)</th>
+              <th>AY (m/s²)</th>
+              <th>AZ (m/s²)</th>
               <th>Raw Line</th>
             </tr>
           </thead>
@@ -490,7 +490,7 @@
   <!-- FOOTER -->
   <footer>
     <span>Designed for Physics Club SVNIT CanSat Competition 2026</span>
-    <span>Complies with Rulebook Standard Packet Protocol (CAN-Team-07)</span>
+    <span>Complies with Rulebook Standard Packet Protocol (CAN-Team-21)</span>
   </footer>
 
   <!-- SCRIPT -->
@@ -577,9 +577,9 @@
       data: {
         labels: [],
         datasets: [
-          { label: 'AX', borderColor: '#38bdf8', data: [] },
-          { label: 'AY', borderColor: '#a855f7', data: [] },
-          { label: 'AZ', borderColor: '#34d399', data: [] }
+          { label: 'AX (m/s²)', borderColor: '#38bdf8', data: [] },
+          { label: 'AY (m/s²)', borderColor: '#a855f7', data: [] },
+          { label: 'AZ (m/s²)', borderColor: '#34d399', data: [] }
         ]
       },
       options: commonChartOptions
@@ -608,7 +608,7 @@
       const p = (pitch * Math.PI) / 180;
       const y = (yaw * Math.PI) / 180;
 
-      // 3D Cube vertices (Cylinder-like approximation)
+      // 3D Box vertices
       const nodes = [
         [-1, -2, -1], [1, -2, -1], [1, 2, -1], [-1, 2, -1],
         [-1, -2,  1], [1, -2,  1], [1, 2,  1], [-1, 2,  1]
@@ -652,7 +652,7 @@
         ctx.stroke();
       });
 
-      // Draw Horizon indicator
+      // Horizon Reference
       ctx.strokeStyle = 'rgba(255,255,255,0.15)';
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
@@ -665,7 +665,7 @@
     draw3DBox(0, 0, 0);
 
     // ================= PARSE TELEMETRY PACKET =================
-    // Protocol: CAN-Team-07; P-001; Ti-00:00:01:250; A-30.2; Pr-101325.00; T-24.5; Ro-1.2; Pi-0.5; Ya-0.0; AX-0.02; AY-0.15; AZ-9.81;
+    // Format: CAN-Team-21; P-001; Ti-00:00:01:250; A-30.2; Pr-101325.00; T-24.5; Ro-1.2; Pi-0.5; Ya-0.0; AX-0.02; AY-0.15; AZ-9.81;
     function parseTelemetryLine(line) {
       line = line.trim();
       if (!line || !line.includes('CAN-Team-')) return null;
@@ -701,7 +701,7 @@
     function processPacket(pkt) {
       if (!pkt) return;
 
-      // Calculate instantaneous vertical descent speed (m/s)
+      // Instantaneous vertical descent speed calculation
       const now = performance.now();
       let descentRate = 0;
       if (lastTime > 0) {
@@ -718,10 +718,10 @@
       telemetryHistory.push(pkt);
 
       // 1. Update Top Metric Displays
-      document.getElementById('valAlt').innerText = pkt.altitude.toFixed(1);
+      document.getElementById('valAlt').innerText = (pkt.altitude !== undefined) ? pkt.altitude.toFixed(1) : '0.0';
       document.getElementById('valDescent').innerText = descentRate.toFixed(1);
-      document.getElementById('valPressure').innerText = (pkt.pressure / 100).toFixed(2);
-      document.getElementById('valTemp').innerText = pkt.temperature.toFixed(1);
+      document.getElementById('valPressure').innerText = (pkt.pressure !== undefined) ? (pkt.pressure / 100).toFixed(2) : '1013.25';
+      document.getElementById('valTemp').innerText = (pkt.temperature !== undefined) ? pkt.temperature.toFixed(1) : '25.0';
       document.getElementById('valPacketCount').innerText = pkt.packet || telemetryHistory.length;
       document.getElementById('timeDisplay').innerText = `T+ ${pkt.time || '00:00:00'}`;
 
@@ -735,7 +735,7 @@
         descentCard.className = 'metric-card';
       }
 
-      // Flight State Machine
+      // Flight Phase Machine
       const phaseBadge = document.getElementById('valPhase');
       if (pkt.altitude < 1.0 && telemetryHistory.length < 15) {
         phaseBadge.innerText = 'STANDBY (GROUND)';
@@ -752,14 +752,14 @@
       }
 
       // 2. Update 3D Orientation & Dynamics
-      document.getElementById('valRoll').innerText = `${pkt.roll.toFixed(1)}°`;
-      document.getElementById('valPitch').innerText = `${pkt.pitch.toFixed(1)}°`;
-      document.getElementById('valYaw').innerText = `${pkt.yaw.toFixed(1)}°`;
-      document.getElementById('valAX').innerText = pkt.ax.toFixed(2);
-      document.getElementById('valAY').innerText = pkt.ay.toFixed(2);
-      document.getElementById('valAZ').innerText = pkt.az.toFixed(2);
+      document.getElementById('valRoll').innerText = `${(pkt.roll || 0).toFixed(1)}°`;
+      document.getElementById('valPitch').innerText = `${(pkt.pitch || 0).toFixed(1)}°`;
+      document.getElementById('valYaw').innerText = `${(pkt.yaw || 0).toFixed(1)}°`;
+      document.getElementById('valAX').innerText = (pkt.ax || 0).toFixed(2);
+      document.getElementById('valAY').innerText = (pkt.ay || 0).toFixed(2);
+      document.getElementById('valAZ').innerText = (pkt.az || 0).toFixed(2);
 
-      draw3DBox(pkt.roll, pkt.pitch, pkt.yaw);
+      draw3DBox(pkt.roll || 0, pkt.pitch || 0, pkt.yaw || 0);
 
       // 3. Update Real-Time Charts
       const label = pkt.time ? pkt.time.split(':').slice(1).join(':') : `P${pkt.packet}`;
@@ -774,27 +774,27 @@
         chart.update();
       }
 
-      pushChart(chartAltitude, label, [pkt.altitude]);
+      pushChart(chartAltitude, label, [pkt.altitude || 0]);
       pushChart(chartDescent, label, [descentRate]);
-      pushChart(chartEnvironment, label, [pkt.pressure / 100, pkt.temperature]);
-      pushChart(chartAccel, label, [pkt.ax, pkt.ay, pkt.az]);
+      pushChart(chartEnvironment, label, [(pkt.pressure || 101325) / 100, pkt.temperature || 25]);
+      pushChart(chartAccel, label, [pkt.ax || 0, pkt.ay || 0, pkt.az || 0]);
 
-      // 4. Update Telemetry Table (Keep latest 30 in DOM)
+      // 4. Update Telemetry Table (Keep latest 50)
       const tbody = document.getElementById('tableBody');
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>P-${pkt.packet || telemetryHistory.length}</strong></td>
         <td>${pkt.time || '-'}</td>
-        <td style="color:var(--accent-cyan); font-weight:600;">${pkt.altitude.toFixed(1)}</td>
+        <td style="color:var(--accent-cyan); font-weight:600;">${(pkt.altitude || 0).toFixed(1)}</td>
         <td>${descentRate.toFixed(1)}</td>
-        <td>${pkt.pressure.toFixed(2)}</td>
-        <td>${pkt.temperature.toFixed(1)}</td>
-        <td>${pkt.roll.toFixed(1)}</td>
-        <td>${pkt.pitch.toFixed(1)}</td>
-        <td>${pkt.yaw.toFixed(1)}</td>
-        <td>${pkt.ax.toFixed(2)}</td>
-        <td>${pkt.ay.toFixed(2)}</td>
-        <td>${pkt.az.toFixed(2)}</td>
+        <td>${(pkt.pressure || 0).toFixed(2)}</td>
+        <td>${(pkt.temperature || 0).toFixed(1)}</td>
+        <td>${(pkt.roll || 0).toFixed(1)}</td>
+        <td>${(pkt.pitch || 0).toFixed(1)}</td>
+        <td>${(pkt.yaw || 0).toFixed(1)}</td>
+        <td>${(pkt.ax || 0).toFixed(2)}</td>
+        <td>${(pkt.ay || 0).toFixed(2)}</td>
+        <td>${(pkt.az || 0).toFixed(2)}</td>
         <td style="font-family:monospace; color:#64748b;">${pkt.raw}</td>
       `;
       tbody.insertBefore(tr, tbody.firstChild);
@@ -803,7 +803,7 @@
       }
     }
 
-    // ================= WEB SERIAL API (LIVE ESP32 CONNECTION) =================
+    // ================= WEB SERIAL API =================
     async function toggleSerial() {
       if (isConnected) {
         if (reader) await reader.cancel();
@@ -839,7 +839,7 @@
           if (done) break;
           buffer += value;
           const lines = buffer.split('\n');
-          buffer = lines.pop(); // keep remainder
+          buffer = lines.pop();
 
           for (const line of lines) {
             const pkt = parseTelemetryLine(line);
@@ -847,7 +847,7 @@
           }
         }
       } catch (err) {
-        console.error('Serial connection error:', err);
+        console.error('Serial error:', err);
         isConnected = false;
         document.getElementById('statusDot').className = 'status-dot';
         document.getElementById('statusText').innerText = 'Connection Error';
@@ -855,7 +855,7 @@
       }
     }
 
-    // ================= SIMULATION MODE (TESTING WITHOUT HARDWARE) =================
+    // ================= SIMULATION MODE =================
     function toggleSimulation() {
       if (isSimulating) {
         clearInterval(simInterval);
@@ -873,7 +873,7 @@
 
       let simPacket = 1;
       let simAlt = 0;
-      let phase = 'ascent'; // ascent -> descent -> landed
+      let phase = 'ascent';
       let simTimeMs = 0;
 
       simInterval = setInterval(() => {
@@ -883,7 +883,7 @@
           simAlt += 2.5; // rising to 100ft (~30.48m)
           if (simAlt >= 30.5) phase = 'descent';
         } else if (phase === 'descent') {
-          simAlt -= 1.75; // descending at 3.5 m/s (1.75m per 0.5s)
+          simAlt -= 1.75; // descending at 3.5 m/s
           if (simAlt <= 0) {
             simAlt = 0;
             phase = 'landed';
@@ -901,7 +901,7 @@
         const yaw = (simPacket * 2.0) % 360;
 
         const pNum = String(simPacket).padStart(3, '0');
-        const simulatedLine = `CAN-Team-07; P-${pNum}; Ti-${timeStr}; A-${simAlt.toFixed(1)}; Pr-${(101325 - simAlt * 12).toFixed(2)}; T-${(24.5 - simAlt * 0.05).toFixed(1)}; Ro-${roll.toFixed(1)}; Pi-${pitch.toFixed(1)}; Ya-${yaw.toFixed(1)}; AX-0.05; AY-0.12; AZ-${(phase==='descent'? -3.5 : 9.81).toFixed(2)};`;
+        const simulatedLine = `CAN-Team-21; P-${pNum}; Ti-${timeStr}; A-${simAlt.toFixed(1)}; Pr-${(101325 - simAlt * 12).toFixed(2)}; T-${(24.5 - simAlt * 0.05).toFixed(1)}; Ro-${roll.toFixed(1)}; Pi-${pitch.toFixed(1)}; Ya-${yaw.toFixed(1)}; AX-0.05; AY-0.12; AZ-${(phase==='descent'? 6.31 : 9.81).toFixed(2)};`;
 
         const pkt = parseTelemetryLine(simulatedLine);
         processPacket(pkt);
@@ -909,7 +909,7 @@
       }, 500);
     }
 
-    // ================= EXPORT CSV FOR 4-HOUR DATA ANALYSIS =================
+    // ================= EXPORT CSV FOR 4-HOUR REPORT =================
     function exportCSV() {
       if (telemetryHistory.length === 0) {
         alert('No telemetry data recorded yet!');
@@ -926,7 +926,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `CanSat_CAN-Team-07_FlightData_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
+      a.download = `CanSat_CAN-Team-21_FlightData_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     }

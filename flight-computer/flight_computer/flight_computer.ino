@@ -1,408 +1,266 @@
-/**
- * ============================================================================
- * 🛰️ CanSat 2026 - Main Flight Computer Firmware (Transmitter)
- * Team Name: Team Alpha
- * Team ID: CAN-Team-07
- * Target Board: ESP32 DevKit V1
- * Sensors: BMP180 / BMP280 (I2C), MPU6050 6-DOF IMU (I2C)
- * RF Module: SX1278 LoRa 433 MHz (SPI)
- * ============================================================================
- *
- * PACKET FORMAT SPECIFICATION (Rulebook Section 7):
- * CAN-Team-07; P-XXX; Ti-HH:MM:SS:MS; A-XXX.X; Pr-XXXX.XX; T-XX.X; Ro-XX.X; Pi-XX.X; Ya-XX.X; AX-XX.XX; AY-XX.XX; AZ-XX.XX;
- *
- * RULES COMPLIANCE:
- * - Launch Sync Word: 0xA5 (Testing Sync Word: 0xF3)
- * - Frequency: 433.0 MHz
- * - Transmission Rate: ~2 Packets / sec (>= 1 pkt/sec rule)
- * - Automatic transmission begins on boot
- * - Altitude baseline calibration at ground floor (A = 0.0m)
- * - Status LED indicator on GPIO 4
- * ============================================================================
- */
-
 #include <Wire.h>
 #include <SPI.h>
 #include <LoRa.h>
-#include <Adafruit_BMP085.h>  // Supports BMP180 & BMP085
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
+#include <Adafruit_BMP280.h>
 
-// ======================== CONFIGURATION ========================
-const String TEAM_ID = "CAN-Team-07";
+#define TEAM_NUMBER 21
 
-// LoRa Sync Words: Use 0xA5 for Official Launch, 0xF3 for Pre-launch Testing
-#define LORA_SYNC_WORD_LAUNCH  0xA5
-#define LORA_SYNC_WORD_TEST    0xF3
-#define ACTIVE_SYNC_WORD       LORA_SYNC_WORD_LAUNCH
+// Status LED pin (mandatory indicator)
+#define LED_PIN 4
 
-#define LORA_FREQUENCY         433E6 // 433 MHz
+// BMP280 sensor
+Adafruit_BMP280 bmp;
+#define I2C_SDA 21
+#define I2C_SCL 22
 
-// Pin Definitions for ESP32 DevKit V1
-#define PIN_LED_STATUS         4     // Mandatory Power/TX Indicator LED
-#define PIN_I2C_SDA            21    // I2C SDA (BMP + MPU)
-#define PIN_I2C_SCL            22    // I2C SCL (BMP + MPU)
+// MPU6500 / MPU6050 registers
+#define MPU_ADDR     0x68
+#define PWR_MGMT_1   0x6B
+#define ACCEL_XOUT_H 0x3B
+#define GYRO_XOUT_H  0x43
+#define WHO_AM_I     0x75
 
-// LoRa SX1278 SPI Pins
-#define PIN_LORA_SS            5     // NSS / CS
-#define PIN_LORA_RST           14    // NRESET
-#define PIN_LORA_DIO0          2     // DIO0 Interrupt
+// LoRa SPI pins
+#define LORA_SCK   18
+#define LORA_MISO  19
+#define LORA_MOSI  23
+#define LORA_SS    5
+#define LORA_RST   14
+#define LORA_DIO0  2
 
-// Sea level baseline pressure in Pa (standard reference: 101325 Pa)
-#define SEA_LEVEL_PRESSURE_PA  101325.0
+// LoRa config
+#define LORA_FREQUENCY 433E6
+#define LORA_SF       7
+#define LORA_BW       125E3
+#define LORA_CR       5
+#define LORA_SYNC     0xA5  // 0xA5 for launch, 0xF3 for testing
 
-// Low-pass filter smoothing coefficient for Accelerometer world frame
-#define ACCEL_FILTER_ALPHA     0.25
+// Packet timing
+unsigned long packetNumber = 0;
+unsigned long lastSend = 0;
+const unsigned long SEND_INTERVAL = 500; // send every 500ms (2 Hz)
 
-// ======================== GLOBAL OBJECTS ========================
-Adafruit_BMP085 bmp;
-Adafruit_MPU6050 mpu;
+// Orientation and calibration variables
+float roll = 0.0;
+float pitch = 0.0;
+float yaw = 0.0;
+float gyroBiasX = 0.0, gyroBiasY = 0.0, gyroBiasZ = 0.0;
+unsigned long lastImuTime = 0;
 
-// ======================== KALMAN FILTER STRUCT ========================
-struct Kalman {
-  float q_angle;   // Process noise variance for accelerometer
-  float q_bias;    // Process noise variance for gyro bias
-  float r_measure; // Measurement noise variance
-  float angle;     // Calculated angle
-  float bias;      // Calculated gyro bias
-  float p[2][2];   // Error covariance matrix
-};
-
-Kalman kalmanRoll;
-Kalman kalmanPitch;
-
-void initKalman(Kalman *k) {
-  k->q_angle = 0.001f;
-  k->q_bias = 0.003f;
-  k->r_measure = 0.03f;
-  k->angle = 0.0f;
-  k->bias = 0.0f;
-  k->p[0][0] = 0.0f;
-  k->p[0][1] = 0.0f;
-  k->p[1][0] = 0.0f;
-  k->p[1][1] = 0.0f;
+// Write single byte to MPU register
+void writeRegister(uint8_t reg, uint8_t value) {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(reg);
+  Wire.write(value);
+  Wire.endTransmission();
 }
 
-float kalmanUpdate(Kalman *k, float newAngle, float newRate, float dt) {
-  // Predict
-  float rate = newRate - k->bias;
-  k->angle += dt * rate;
-
-  k->p[0][0] += dt * (dt * k->p[1][1] - k->p[0][1] - k->p[1][0] + k->q_angle);
-  k->p[0][1] -= dt * k->p[1][1];
-  k->p[1][0] -= dt * k->p[1][1];
-  k->p[1][1] += k->q_bias * dt;
-
-  // Measurement Update (Kalman Gain)
-  float s = k->p[0][0] + k->r_measure;
-  float k0 = k->p[0][0] / s;
-  float k1 = k->p[1][0] / s;
-
-  float y = newAngle - k->angle;
-  k->angle += k0 * y;
-  k->bias += k1 * y;
-
-  float p00_temp = k->p[0][0];
-  float p01_temp = k->p[0][1];
-
-  k->p[0][0] -= k0 * p00_temp;
-  k->p[0][1] -= k0 * p01_temp;
-  k->p[1][0] -= k1 * p00_temp;
-  k->p[1][1] -= k1 * p01_temp;
-
-  return k->angle;
-}
-
-// ======================== STATE VARIABLES ========================
-unsigned long packetCount = 1;
-unsigned long previousTime = 0;
-unsigned long lastTxTime = 0;
-
-float baseAltitude = 0.0;
-bool isBaseAltitudeSet = false;
-
-// Calibration Offsets
-float gyroBiasX = 0, gyroBiasY = 0, gyroBiasZ = 0;
-float accelBiasX = 0, accelBiasY = 0, accelBiasZ = 0;
-
-// Filtered Orientation & World Acceleration
-float roll = 0, pitch = 0, yaw = 0;
-float filteredAX = 0, filteredAY = 0, filteredAZ = 0;
-
-// Sensor Health Flags
-bool bmpAvailable = false;
-bool mpuAvailable = false;
-bool loraAvailable = false;
-
-// ======================== HELPER FUNCTIONS ========================
-
-// Pad number with leading zeroes
-String padNumber(unsigned long num, int digits) {
-  String s = String(num);
-  while (s.length() < digits) {
-    s = "0" + s;
+// Read 16-bit signed integer from MPU register
+int16_t read16(uint8_t reg) {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(reg);
+  Wire.endTransmission(false);
+  Wire.requestFrom((uint8_t)MPU_ADDR, (uint8_t)2);
+  if (Wire.available() < 2) {
+    return 0;
   }
-  return s;
+  return (int16_t)((Wire.read() << 8) | Wire.read());
 }
 
-// Format timestamp as HH:MM:SS:MS
-String getFormattedTime(unsigned long ms) {
-  unsigned long hours = ms / 3600000;
-  unsigned long minutes = (ms % 3600000) / 60000;
-  unsigned long seconds = (ms % 60000) / 1000;
-  unsigned long millisecs = ms % 1000;
+// Calibrate gyro offsets when device is at rest
+void calibrateGyro() {
+  Serial.print("Calibrating gyro offset... ");
+  const int samples = 100;
+  long gx = 0, gy = 0, gz = 0;
 
-  return padNumber(hours, 2) + ":" +
-         padNumber(minutes, 2) + ":" +
-         padNumber(seconds, 2) + ":" +
-         padNumber(millisecs, 3);
-}
-
-// Calibrate IMU offsets on startup
-void calibrateSensors() {
-  Serial.println(F("[IMU] Calibrating MPU6050... Please keep CanSat upright and still."));
-  const int SAMPLES = 200;
-  float sumAX = 0, sumAY = 0, sumAZ = 0;
-  float sumGX = 0, sumGY = 0, sumGZ = 0;
-
-  for (int i = 0; i < SAMPLES; i++) {
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
-
-    sumAX += a.acceleration.x;
-    sumAY += a.acceleration.y;
-    sumAZ += a.acceleration.z - 9.80665f; // Expect 1g along Z axis when upright
-    sumGX += g.gyro.x;
-    sumGY += g.gyro.y;
-    sumGZ += g.gyro.z;
-
-    digitalWrite(PIN_LED_STATUS, (i % 10 < 5) ? HIGH : LOW);
+  for (int i = 0; i < samples; i++) {
+    gx += read16(GYRO_XOUT_H);
+    gy += read16(GYRO_XOUT_H + 2);
+    gz += read16(GYRO_XOUT_H + 4);
     delay(10);
   }
 
-  accelBiasX = sumAX / SAMPLES;
-  accelBiasY = sumAY / SAMPLES;
-  accelBiasZ = sumAZ / SAMPLES;
-
-  gyroBiasX = sumGX / SAMPLES;
-  gyroBiasY = sumGY / SAMPLES;
-  gyroBiasZ = sumGZ / SAMPLES;
-
-  digitalWrite(PIN_LED_STATUS, HIGH);
-  Serial.println(F("[IMU] Calibration complete!"));
+  gyroBiasX = (gx / (float)samples) / 131.0;
+  gyroBiasY = (gy / (float)samples) / 131.0;
+  gyroBiasZ = (gz / (float)samples) / 131.0;
+  Serial.println("done");
 }
 
-// ======================== SETUP ========================
+// Format timestamp string HH:MM:SS:MS
+void getTime(unsigned long ms, char *buffer, size_t bufferSize) {
+  unsigned long totalSeconds = ms / 1000;
+  unsigned int milliseconds = ms % 1000;
+  unsigned int seconds = totalSeconds % 60;
+  unsigned int minutes = (totalSeconds / 60) % 60;
+  unsigned int hours = (totalSeconds / 3600) % 24;
+
+  snprintf(buffer, bufferSize, "%02u:%02u:%02u:%03u", hours, minutes, seconds, milliseconds);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(500);
 
-  pinMode(PIN_LED_STATUS, OUTPUT);
-  digitalWrite(PIN_LED_STATUS, HIGH); // Mandatory power-on indicator LED
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH); // power indicator on
 
-  Serial.println(F("\n=================================================="));
-  Serial.println(F("🛰️  CanSat 2026 Flight Computer - Team Alpha (07)"));
-  Serial.println(F("=================================================="));
+  Serial.println("\n--- CanSat Transmitter (Team 21) ---");
 
-  // 1. Initialize I2C Bus
-  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
-  Wire.setClock(400000); // 400kHz Fast I2C
+  // Init I2C
+  Wire.begin(I2C_SDA, I2C_SCL);
+  Wire.setClock(400000);
 
-  // 2. Initialize BMP Sensor
-  Serial.print(F("[BMP] Initializing Barometer... "));
-  if (bmp.begin()) {
-    bmpAvailable = true;
-    Serial.println(F("SUCCESS (BMP180/085 detected)"));
-  } else {
-    Serial.println(F("FAILED! Check wiring. (Using fallback estimates)"));
-  }
-
-  // 3. Initialize MPU6050
-  Serial.print(F("[IMU] Initializing MPU6050... "));
-  if (mpu.begin()) {
-    mpuAvailable = true;
-    Serial.println(F("SUCCESS"));
-    mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-    mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-    mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
-
-    calibrateSensors();
-
-    initKalman(&kalmanRoll);
-    initKalman(&kalmanPitch);
-
-    // Initial orientation estimation
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
-    float initRoll = atan2(a.acceleration.y, a.acceleration.z) * 180.0 / PI;
-    float initPitch = atan(-a.acceleration.x / sqrt(a.acceleration.y * a.acceleration.y + a.acceleration.z * a.acceleration.z)) * 180.0 / PI;
-
-    kalmanRoll.angle = initRoll;
-    kalmanPitch.angle = initPitch;
-    roll = initRoll;
-    pitch = initPitch;
-  } else {
-    Serial.println(F("FAILED! Check wiring."));
-  }
-
-  // 4. Initialize Altitude Baseline (Rule 2B: baseline must calibrate to 0m on ground)
-  if (bmpAvailable) {
-    Serial.print(F("[ALT] Calibrating Ground Baseline Altitude... "));
-    float sumAlt = 0;
-    for (int i = 0; i < 20; i++) {
-      sumAlt += bmp.readAltitude(SEA_LEVEL_PRESSURE_PA);
-      delay(25);
+  // Init BMP280
+  if (!bmp.begin(0x76)) {
+    Serial.println("BMP280 not found at 0x76, trying 0x77...");
+    if (!bmp.begin(0x77)) {
+      Serial.println("BMP280 init failed!");
+      while (1) {
+        digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+        delay(200);
+      }
     }
-    baseAltitude = sumAlt / 20.0;
-    isBaseAltitudeSet = true;
-    Serial.print(F("Ground Level Reference = "));
-    Serial.print(baseAltitude, 2);
-    Serial.println(F(" m"));
   }
+  Serial.println("BMP280 connected");
 
-  // 5. Initialize LoRa SX1278
-  Serial.print(F("[RF]  Initializing SX1278 LoRa @ 433MHz... "));
-  LoRa.setPins(PIN_LORA_SS, PIN_LORA_RST, PIN_LORA_DIO0);
+  // Wake up MPU6500
+  writeRegister(PWR_MGMT_1, 0x00);
+  delay(100);
 
-  int loraRetries = 0;
-  while (!LoRa.begin(LORA_FREQUENCY) && loraRetries < 5) {
-    Serial.print(F("."));
-    delay(400);
-    loraRetries++;
-  }
-
-  if (loraRetries < 5) {
-    loraAvailable = true;
-    LoRa.setSyncWord(ACTIVE_SYNC_WORD);
-    LoRa.setSpreadingFactor(7);           // SF7 for fast telemetry throughput
-    LoRa.setSignalBandwidth(125E3);       // 125 kHz
-    LoRa.setCodingRate4(5);               // 4/5 error coding
-    LoRa.setTxPower(17);                  // 17 dBm (50mW output)
-    Serial.println(F("SUCCESS"));
-    Serial.print(F("      Sync Word configured to: 0x"));
-    Serial.println(ACTIVE_SYNC_WORD, HEX);
+  // Check WHO_AM_I
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(WHO_AM_I);
+  Wire.endTransmission(false);
+  Wire.requestFrom((uint8_t)MPU_ADDR, (uint8_t)1);
+  if (Wire.available()) {
+    uint8_t whoAmI = Wire.read();
+    Serial.print("MPU WHO_AM_I: 0x");
+    Serial.println(whoAmI, HEX);
   } else {
-    Serial.println(F("FAILED! Continuing with Serial-only telemetry."));
+    Serial.println("MPU not responding!");
   }
 
-  previousTime = millis();
-  Serial.println(F("[SYSTEM] Telemetry Loop Started (Ready for Drop/Launch)"));
-  Serial.println(F("--------------------------------------------------\n"));
+  calibrateGyro();
+
+  // Initial angle estimation from accelerometer
+  int16_t ax_init = read16(ACCEL_XOUT_H);
+  int16_t ay_init = read16(ACCEL_XOUT_H + 2);
+  int16_t az_init = read16(ACCEL_XOUT_H + 4);
+  roll  = atan2((float)ay_init, (float)az_init) * 180.0 / PI;
+  pitch = atan(-(float)ax_init / sqrt((float)ay_init * ay_init + (float)az_init * az_init)) * 180.0 / PI;
+  lastImuTime = millis();
+
+  // Init LoRa SPI
+  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
+  LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+
+  while (!LoRa.begin(LORA_FREQUENCY)) {
+    Serial.println("LoRa init failed, retrying...");
+    delay(1000);
+  }
+
+  // Set LoRa parameters
+  LoRa.setSpreadingFactor(LORA_SF);
+  LoRa.setSignalBandwidth(LORA_BW);
+  LoRa.setCodingRate4(LORA_CR);
+  LoRa.setSyncWord(LORA_SYNC);
+  LoRa.enableCrc();
+  LoRa.setTxPower(17);
+
+  Serial.println("LoRa transmitter ready");
+  Serial.println("------------------------------------");
 }
 
-// ======================== MAIN LOOP ========================
 void loop() {
-  unsigned long currentTime = millis();
-  float dt = (currentTime - previousTime) / 1000.0f;
-  if (dt < 0.001f) dt = 0.001f;
-  previousTime = currentTime;
+  unsigned long now = millis();
 
-  // ----------------- 1. SENSOR DATA ACQUISITION -----------------
-  float pressurePa = 101325.0;
-  float temperature = 25.0;
-  float relativeAltitude = 0.0;
+  // Update roll, pitch, yaw using complementary filter
+  float dt = (now - lastImuTime) / 1000.0f;
+  if (dt >= 0.01f) {
+    lastImuTime = now;
 
-  if (bmpAvailable) {
-    pressurePa = (float)bmp.readPressure();
-    temperature = bmp.readTemperature();
-    float rawAltitude = bmp.readAltitude(SEA_LEVEL_PRESSURE_PA);
-    relativeAltitude = rawAltitude - baseAltitude;
-    if (abs(relativeAltitude) < 0.05f) relativeAltitude = 0.0f; // clean ground floor zero
+    int16_t ax_raw = read16(ACCEL_XOUT_H);
+    int16_t ay_raw = read16(ACCEL_XOUT_H + 2);
+    int16_t az_raw = read16(ACCEL_XOUT_H + 4);
+    int16_t gx_raw = read16(GYRO_XOUT_H);
+    int16_t gy_raw = read16(GYRO_XOUT_H + 2);
+    int16_t gz_raw = read16(GYRO_XOUT_H + 4);
+
+    // Gyro rates in deg/s
+    float gx = (gx_raw / 131.0) - gyroBiasX;
+    float gy = (gy_raw / 131.0) - gyroBiasY;
+    float gz = (gz_raw / 131.0) - gyroBiasZ;
+
+    // Accel angles in degrees
+    float accelRoll  = atan2((float)ay_raw, (float)az_raw) * 180.0 / PI;
+    float accelPitch = atan(-(float)ax_raw / sqrt((float)ay_raw * ay_raw + (float)az_raw * az_raw)) * 180.0 / PI;
+
+    // Filter fusion: 96% gyro + 4% accel
+    roll  = 0.96f * (roll + gx * dt) + 0.04f * accelRoll;
+    pitch = 0.96f * (pitch + gy * dt) + 0.04f * accelPitch;
+    yaw  += gz * dt;
+    if (yaw > 180.0f) yaw -= 360.0f;
+    if (yaw < -180.0f) yaw += 360.0f;
   }
 
-  float accelWorldX = 0.0, accelWorldY = 0.0, accelWorldZ = 0.0;
-
-  if (mpuAvailable) {
-    sensors_event_t a, g, temp;
-    mpu.getEvent(&a, &g, &temp);
-
-    // Apply calibration offsets
-    float calAX = a.acceleration.x - accelBiasX;
-    float calAY = a.acceleration.y - accelBiasY;
-    float calAZ = a.acceleration.z - accelBiasZ;
-
-    float calGX = (g.gyro.x - gyroBiasX) * 180.0 / PI; // deg/s
-    float calGY = (g.gyro.y - gyroBiasY) * 180.0 / PI;
-    float calGZ = (g.gyro.z - gyroBiasZ) * 180.0 / PI;
-
-    // Estimate Roll & Pitch from Accelerometer
-    float accelRoll = atan2(calAY, calAZ) * 180.0 / PI;
-    float accelPitch = atan(-calAX / sqrt(calAY * calAY + calAZ * calAZ)) * 180.0 / PI;
-
-    // Kalman Filter updates
-    roll = kalmanUpdate(&kalmanRoll, accelRoll, calGX, dt);
-    pitch = kalmanUpdate(&kalmanPitch, accelPitch, calGY, dt);
-
-    // Simple Yaw integration
-    yaw += calGZ * dt;
-    if (yaw > 180.0) yaw -= 360.0;
-    if (yaw < -180.0) yaw += 360.0;
-
-    // Low-pass filter for smooth acceleration profiles
-    filteredAX = ACCEL_FILTER_ALPHA * calAX + (1.0 - ACCEL_FILTER_ALPHA) * filteredAX;
-    filteredAY = ACCEL_FILTER_ALPHA * calAY + (1.0 - ACCEL_FILTER_ALPHA) * filteredAY;
-    filteredAZ = ACCEL_FILTER_ALPHA * calAZ + (1.0 - ACCEL_FILTER_ALPHA) * filteredAZ;
-
-    // World coordinate frame transformation (gravity-referenced)
-    float rRad = roll * PI / 180.0;
-    float pRad = pitch * PI / 180.0;
-    float yRad = yaw * PI / 180.0;
-
-    accelWorldX = filteredAX * cos(pRad) * cos(yRad) +
-                  filteredAY * (sin(rRad) * sin(pRad) * cos(yRad) - cos(rRad) * sin(yRad)) +
-                  filteredAZ * (cos(rRad) * sin(pRad) * cos(yRad) + sin(rRad) * sin(yRad));
-
-    accelWorldY = filteredAX * cos(pRad) * sin(yRad) +
-                  filteredAY * (sin(rRad) * sin(pRad) * sin(yRad) + cos(rRad) * cos(yRad)) +
-                  filteredAZ * (cos(rRad) * sin(pRad) * sin(yRad) - sin(rRad) * cos(yRad));
-
-    accelWorldZ = -filteredAX * sin(pRad) +
-                   filteredAY * sin(rRad) * cos(pRad) +
-                   filteredAZ * cos(rRad) * cos(pRad);
-
-    // Dead-band noise threshold
-    if (abs(accelWorldX) < 0.05) accelWorldX = 0.0;
-    if (abs(accelWorldY) < 0.05) accelWorldY = 0.0;
-    if (abs(accelWorldZ) < 0.05) accelWorldZ = 0.0;
+  // Send telemetry packet at fixed interval
+  if (now - lastSend < SEND_INTERVAL) {
+    return;
   }
+  lastSend = now;
+  packetNumber++;
 
-  // ----------------- 2. TELEMETRY TRANSMISSION -----------------
-  // Target rate: ~2 packets per second (every 500 ms)
-  if (currentTime - lastTxTime >= 500) {
-    lastTxTime = currentTime;
+  // Read barometric data (absolute sea-level altitude)
+  float temperature = bmp.readTemperature();
+  float pressure = bmp.readPressure();
+  float altitude = bmp.readAltitude(1013.25);
 
-    String timestampStr = getFormattedTime(currentTime);
-    String packetNumStr = "P-" + padNumber(packetCount, 3);
+  // Convert raw acceleration to m/s^2 (1g = 9.80665 m/s^2)
+  int16_t ax_raw = read16(ACCEL_XOUT_H);
+  int16_t ay_raw = read16(ACCEL_XOUT_H + 2);
+  int16_t az_raw = read16(ACCEL_XOUT_H + 4);
+  float ax = (ax_raw / 16384.0f) * 9.80665f;
+  float ay = (ay_raw / 16384.0f) * 9.80665f;
+  float az = (az_raw / 16384.0f) * 9.80665f;
 
-    // Exact Mandatory Rulebook Format:
-    // CAN-Team-XX; P-XXX; Ti-HH:MM:SS:MS; A-XXX.X; Pr-XXXX.XX; T-XX.X; Ro-XX.X; Pi-XX.X; Ya-XX.X; AX-XX.XX; AY-XX.XX; AZ-XX.XX;
-    String telemetryPacket = TEAM_ID + "; " +
-                             packetNumStr + "; " +
-                             "Ti-" + timestampStr + "; " +
-                             "A-"  + String(relativeAltitude, 1) + "; " +
-                             "Pr-" + String(pressurePa, 2) + "; " +
-                             "T-"  + String(temperature, 1) + "; " +
-                             "Ro-" + String(roll, 1) + "; " +
-                             "Pi-" + String(pitch, 1) + "; " +
-                             "Ya-" + String(yaw, 1) + "; " +
-                             "AX-" + String(accelWorldX, 2) + "; " +
-                             "AY-" + String(accelWorldY, 2) + "; " +
-                             "AZ-" + String(accelWorldZ, 2) + ";";
+  // Generate timestamp
+  char timeString[20];
+  getTime(now, timeString, sizeof(timeString));
 
-    // 1. Output to Serial (for debugging/bench test)
-    Serial.println(telemetryPacket);
+  // Team identifier
+  char teamName[20];
+  snprintf(teamName, sizeof(teamName), "CAN-Team-%02d", TEAM_NUMBER);
 
-    // 2. Transmit over LoRa SX1278
-    if (loraAvailable) {
-      digitalWrite(PIN_LED_STATUS, LOW); // Flash LED during TX
-      LoRa.beginPacket();
-      LoRa.print(telemetryPacket);
-      LoRa.endPacket();
-      digitalWrite(PIN_LED_STATUS, HIGH);
-    }
+  // Format packet string per rulebook
+  char packet[200];
+  snprintf(
+    packet,
+    sizeof(packet),
+    "%s; P-%03lu; Ti-%s; A-%.1f; Pr-%.2f; T-%.1f; Ro-%.1f; Pi-%.1f; Ya-%.1f; AX-%.2f; AY-%.2f; AZ-%.2f;",
+    teamName,
+    packetNumber,
+    timeString,
+    altitude,
+    pressure,
+    temperature,
+    roll,
+    pitch,
+    yaw,
+    ax,
+    ay,
+    az
+  );
 
-    packetCount++;
-  }
+  // Print to serial monitor
+  Serial.print("TX (");
+  Serial.print(strlen(packet));
+  Serial.print(" bytes): ");
+  Serial.println(packet);
 
-  delay(10); // Small loop yield for RTOS scheduler
-}\n
+  // Transmit over LoRa (blink status LED)
+  digitalWrite(LED_PIN, LOW);
+  LoRa.beginPacket();
+  LoRa.print(packet);
+  LoRa.endPacket();
+  digitalWrite(LED_PIN, HIGH);
+}

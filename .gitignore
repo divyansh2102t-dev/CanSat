@@ -1,0 +1,12 @@
+# Documentation folder and reports
+docs/
+*.docx
+~$*.docx
+
+# Build artifacts and temporary files
+build/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*~

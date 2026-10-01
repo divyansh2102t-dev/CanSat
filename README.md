@@ -1,4 +1,4 @@
-# 🛰️ CanSat 2026 — Team Alpha (CAN-Team-07)
+# 🛰️ CanSat 2026 — Team Alpha (CAN-Team-21)
 **Physics Club, SVNIT Surat — National Space Day 2026**
 
 Complete, production-ready flight computer firmware, ground station receiver, standalone sensor verification tests, live web dashboard, and engineering documentation for the CanSat Competition 2026.

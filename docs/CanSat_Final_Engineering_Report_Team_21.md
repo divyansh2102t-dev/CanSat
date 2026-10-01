@@ -1,5 +1,5 @@
 # 🛰️ CanSat Design, Build & Launch Competition 2026
-## Official Engineering Design & Mission Report
+## Official Engineering Design & Flight Mission Report
 **Event**: National Space Day 2026  
 **Organized by**: Physics Club, SVNIT Surat  
 
@@ -11,7 +11,7 @@
 * **Institution**: Sardar Vallabhbhai National Institute of Technology (SVNIT), Surat
 * **Team Members**: [Member 1, Member 2, Member 3, Member 4, Member 5]
 * **Faculty / Mentor**: [Mentor Name]
-* **Date of Submission**: September 2026
+* **Date of Submission**: October 2026
 
 ---
 
@@ -33,7 +33,13 @@
    - 5.3 Telemetry Packet Protocol
 6. [Ground Station & Web Mission Control](#6-ground-station--web-mission-control)
 7. [Post-Flight Data Analysis & Graphs](#7-post-flight-data-analysis--graphs)
-8. [Lessons Learned & Future Scope](#8-lessons-learned--future-scope)
+   - 7.1 Altitude Trajectory & Flight Phasing
+   - 7.2 Descent Velocity & Rule 3C Compliance
+   - 7.3 Environmental Pressure & Temperature Gradients
+   - 7.4 3-Axis Dynamic Acceleration & Deployment Shock
+   - 7.5 Attitude Stability (Roll, Pitch, Yaw)
+   - 7.6 RF Link Health (RSSI & SNR)
+8. [Results, Performance Evaluation & Lessons Learned](#8-results-performance-evaluation--lessons-learned)
 9. [Team Media & Photographic Evidence](#9-team-media--photographic-evidence)
 10. [References & Citations](#10-references--citations)
 
@@ -41,12 +47,12 @@
 
 ## 1. Executive Summary & Mission Statement
 
-The objective of **Team Alpha (CAN-Team-21)** in the CanSat 2026 Competition is to design, build, and deploy an autonomous, sub-scale aerospace payload capable of:
-1. Surviving an aerial deployment from a drone at **$100\text{ ft}$ ($30.48\text{ m}$)**.
-2. Deploying a stable aerodynamic parachute system limiting descent rate to **$\le 5.0\text{ m/s}$** (target: **$3.5\text{ m/s}$** for maximum flight duration).
-3. Protecting a fragile **Grade-A raw egg payload** from crack or structural failure upon impact.
-4. Transmitting continuous, real-time sensor telemetry (altitude, pressure, temperature, 3-axis acceleration, 3-axis orientation) over **433 MHz LoRa** to the official ground station and live web dashboard at $\ge 2\text{ Hz}$.
-5. Conducting comprehensive post-flight data analysis within the designated 4-hour window.
+The objective of **Team Alpha (CAN-Team-21)** in the CanSat 2026 Competition is to design, construct, and deploy an autonomous sub-scale aerospace system capable of:
+1. Surviving an aerial release from a drone at **$100\text{ ft}$ ($30.48\text{ m}$)**.
+2. Deploying a stable, hemispherical aerodynamic parachute limiting descent rate to **$\le 5.0\text{ m/s}$** (achieved flight average: **$3.04\text{ m/s}$**, maximizing flight duration).
+3. Protecting a fragile **Grade-A raw egg payload** from crack or structural failure upon ground impact.
+4. Transmitting continuous, real-time sensor telemetry (altitude, pressure, temperature, 3-axis acceleration, 3-axis orientation) over **433 MHz LoRa** to the official ground station at $\ge 2\text{ Hz}$ ($500\text{ ms}$ interval).
+5. Completing comprehensive post-flight data analysis and trajectory reconstruction within the designated 4-hour evaluation window.
 
 ---
 
@@ -56,8 +62,8 @@ The objective of **Team Alpha (CAN-Team-21)** in the CanSat 2026 Competition is 
 |---|---|---|---|
 | **Max Dimensions** | $\le 21\text{ cm} (+7\text{ cm for egg}) \times 12\text{ cm}$ | $20\text{ cm (Height)} \times 10\text{ cm (Diameter)}$ | ✅ Full Compliance |
 | **Max Total Mass** | $\le 500\text{ g } (\pm 10\%)$ | **$300.2\text{ g}$** ($40\%$ mass buffer) | ✅ Full Compliance |
-| **Drop Height** | $100\text{ ft} = 30.48\text{ m}$ (Drone) | $30.48\text{ m}$ | ✅ Full Compliance |
-| **Descent Velocity** | $\le 5.0\text{ m/s}$ | **$3.5\text{ m/s}$** | ✅ Full Compliance |
+| **Drop Height** | $100\text{ ft} = 30.48\text{ m}$ (Drone drop) | $30.48\text{ m}$ | ✅ Full Compliance |
+| **Descent Velocity** | $\le 5.0\text{ m/s}$ | **$3.04\text{ m/s}$ average** (well within safe limit) | ✅ Full Compliance |
 | **Telemetry Rate** | $\ge 1\text{ packet/second}$ | **$2.0\text{ packets/second}$** ($500\text{ ms}$ interval) | ✅ Full Compliance |
 | **RF Protocol** | $433\text{ MHz}$ LoRa, Sync Word `0xA5` | $433.0\text{ MHz}$ LoRa, Sync Word `0xA5` | ✅ Full Compliance |
 | **Status Indicators** | Manual power switch + visible LED | Rocker toggle switch + High-brightness LED (GPIO 4) | ✅ Full Compliance |
@@ -103,11 +109,11 @@ The CanSat body is constructed as a lightweight, modular cylindrical frame manuf
 A standard raw chicken egg ($m_{egg} \approx 58\text{ g}$) has an axial crushing threshold of approximately **$25\text{ N}$**.
 * **Cushioning Material**: Dual-density expanded polyethylene (EPE) and acoustic memory foam ($35\text{ mm}$ radial thickness).
 * **Impact Physics**:
-  $$\text{Impact Velocity } v = 3.5\text{ m/s}$$
+  $$\text{Impact Velocity } v = 3.04\text{ m/s}$$
   $$\text{Deceleration Distance (Foam compression) } d = 0.035\text{ m}$$
-  $$a_{impact} = \frac{v^2}{2d} = \frac{(3.5)^2}{2 \times 0.035} = \frac{12.25}{0.07} = 175\text{ m/s}^2 \approx 17.8g$$
-  $$F_{egg} = m_{egg} \times a_{impact} = 0.058\text{ kg} \times 175\text{ m/s}^2 = 10.15\text{ N}$$
-  $$\text{Safety Factor} = \frac{25\text{ N}}{10.15\text{ N}} = 2.46$$
+  $$a_{impact} = \frac{v^2}{2d} = \frac{(3.04)^2}{2 \times 0.035} = \frac{9.24}{0.07} = 132.0\text{ m/s}^2 \approx 13.4g$$
+  $$F_{egg} = m_{egg} \times a_{impact} = 0.058\text{ kg} \times 132.0\text{ m/s}^2 = 7.66\text{ N}$$
+  $$\text{Safety Factor} = \frac{25\text{ N}}{7.66\text{ N}} = 3.26$$
 
 ```
 +-------------------------------------------------------+
@@ -122,9 +128,9 @@ A standard raw chicken egg ($m_{egg} \approx 58\text{ g}$) has an axial crushing
 To satisfy the descent constraint ($v \le 5.0\text{ m/s}$) while maximizing flight duration:
 * **Drag Equation at Equilibrium**:
   $$m \cdot g = \frac{1}{2} \rho \cdot v^2 \cdot C_d \cdot A$$
-  Where $m = 0.300\text{ kg}$, $g = 9.81\text{ m/s}^2$, $\rho = 1.184\text{ kg/m}^3$, $C_d = 0.75$, $v = 3.5\text{ m/s}$.
-  $$A = \frac{2 \times 0.300 \times 9.81}{1.184 \times (3.5)^2 \times 0.75} = \frac{5.886}{10.878} = 0.541\text{ m}^2$$
-  $$D = \sqrt{\frac{4 \cdot A}{\pi}} = \sqrt{\frac{4 \times 0.541}{3.14159}} \approx 0.83\text{ m} \rightarrow \mathbf{90\text{ cm flat canopy}}$$
+  Where $m = 0.300\text{ kg}$, $g = 9.81\text{ m/s}^2$, $\rho = 1.184\text{ kg/m}^3$, $C_d = 0.75$, $v = 3.04\text{ m/s}$.
+  $$A = \frac{2 \times 0.300 \times 9.81}{1.184 \times (3.04)^2 \times 0.75} = \frac{5.886}{8.216} = 0.716\text{ m}^2$$
+  $$D = \sqrt{\frac{4 \cdot A}{\pi}} = \sqrt{\frac{4 \times 0.716}{3.14159}} \approx 0.95\text{ m} \rightarrow \mathbf{90\text{ cm flat canopy}}$$
 * **Spill Hole**: $9\text{ cm}$ center apex vent ($10\%$ of diameter) to eliminate pendulum oscillation and tumbling.
 * **Shroud Lines**: 8 braided nylon cords of length $1.2 \times D = 108\text{ cm}$.
 
@@ -220,7 +226,7 @@ $$\text{Yaw}_{k} = \text{Yaw}_{k-1} + \omega_z \cdot \Delta t$$
 ### 5.3 Telemetry Packet Protocol
 Each packet strictly complies with Rulebook Section 7:
 ```text
-CAN-Team-21; P-001; Ti-00:00:01:250; A-30.5; Pr-100980.25; T-26.4; Ro-1.2; Pi-0.8; Ya-3.4; AX-0.02; AY-0.05; AZ-9.81;
+CAN-Team-21; P-001; Ti-00:00:01:250; A-46.7; Pr-100765.27; T-34.3; Ro-9.8; Pi-15.8; Ya--27.7; AX--2.65; AY-0.10; AZ-1.72;
 ```
 
 ---
@@ -246,50 +252,50 @@ A real-time Web Telemetry Mission Control dashboard was developed using the **We
 
 ## 7. Post-Flight Data Analysis & Graphs
 
-*(Compile the four mandatory graphs generated from your flight CSV dataset below)*
+### 7.1 Altitude Trajectory & Flight Phasing
+![Graph 1: Altitude vs Time](graphs/1_altitude_profile.png)
+* **Analysis**: The flight profile shows the pre-drop hover phase at $\sim 45.4\text{ m}$, followed by release from the drone at $T=0\text{ s}$ ($P\text{-}772$, $46.7\text{ m}$). After parachute deployment at $T=1.0\text{ s}$, the CanSat established a smooth linear descent trajectory until reaching ground reference at $T=10.0\text{ s}$ ($P\text{-}792$, $14.5\text{ m}$ sea-level reference).
 
-```
-+-------------------------------------------------------+
-|  [UPLOAD GRAPH 1: Altitude (m) vs Time (s)]           |
-|                                                       |
-|  Analysis: Shows initial climb to 100ft, drone        |
-|  release point, steady descent slope, and touchdown.  |
-+-------------------------------------------------------+
+### 7.2 Descent Velocity & Rule 3C Compliance
+![Graph 2: Descent Velocity vs Time](graphs/2_descent_velocity.png)
+* **Analysis**: The calculated vertical descent rate remained strictly bounded between **$2.8\text{ m/s}$ and $3.5\text{ m/s}$** throughout the descent, averaging **$3.04\text{ m/s}$**. This is comfortably within the competition safety ceiling of **$\le 5.0\text{ m/s}$**, demonstrating optimal parachute aerodynamic drag and maximizing flight duration.
 
-+-------------------------------------------------------+
-|  [UPLOAD GRAPH 2: Descent Velocity (m/s) vs Time]     |
-|                                                       |
-|  Analysis: Demonstrates descent rate within the safe  |
-|  <= 5.0 m/s threshold (average 3.5 m/s).              |
-+-------------------------------------------------------+
+### 7.3 Environmental Pressure & Temperature Gradients
+![Graph 3: Pressure & Temperature vs Time](graphs/3_pressure_temperature.png)
+* **Analysis**: Barometric pressure exhibited a clean inverse monotonic gradient with descent, rising from $100765.27\text{ Pa}$ at peak release to $101149.00\text{ Pa}$ on the ground ($+383.7\text{ Pa}$ differential over $\sim 32\text{ m}$). Ambient temperature remained stable at $34.2\text{–}34.3^\circ\text{C}$.
 
-+-------------------------------------------------------+
-|  [UPLOAD GRAPH 3: Pressure (Pa) & Temperature vs Time]|
-|                                                       |
-|  Analysis: Shows atmospheric pressure gradient and    |
-|  temperature profile across descent altitude.         |
-+-------------------------------------------------------+
+### 7.4 3-Axis Dynamic Acceleration & Deployment Shock
+![Graph 4: Acceleration Profiles](graphs/4_acceleration_profiles.png)
+* **Analysis**: 
+  * At $T=0\text{ s}$ ($P\text{-}772$), the vertical acceleration $AZ$ dropped sharply to **$1.72\text{ m/s}^2$**, detecting free-fall release.
+  * At $T=1.0\text{ s}$ ($P\text{-}774$), the parachute fully inflated, producing a transient opening shock spike of **$15.92\text{ m/s}^2$** ($1.62g$), well within the structural limits of the 3D-printed chassis.
+  * During steady glide, $AZ$ stabilized around $9.81\text{ m/s}^2$ (nominal gravity).
 
-+-------------------------------------------------------+
-|  [UPLOAD GRAPH 4: Acceleration Profiles (AX, AY, AZ)] |
-|                                                       |
-|  Analysis: 3-axis acceleration during free-fall,      |
-|  parachute deployment shock, and ground impact.       |
-+-------------------------------------------------------+
-```
+### 7.5 Attitude Stability (Roll, Pitch, Yaw)
+![Graph 5: Orientation Angles](graphs/5_orientation_attitude.png)
+* **Analysis**: The complementary filter successfully tracked attitude dynamics. Roll and Pitch oscillations remained dampened within $\pm 25^\circ$, and Yaw displayed a controlled $10^\circ/\text{s}$ rotation, confirming that the $10\%$ central spill hole prevented catastrophic tumbling or pendulum instability.
+
+### 7.6 RF Link Health (RSSI & SNR)
+![Graph 6: RF Link Health](graphs/6_rf_link_quality.png)
+* **Analysis**: Received signal strength at the ground station ranged between **$-86\text{ dBm}$ and $-109\text{ dBm}$** with positive Signal-to-Noise Ratios (**$+3.5\text{ dB}$ to $+11.25\text{ dB}$**), confirming zero packet dropouts and continuous telemetry connectivity across all flight phases.
+
+### 7.7 Comprehensive Mission Summary Dashboard
+![Graph 7: Comprehensive Mission Dashboard](graphs/7_comprehensive_flight_dashboard.png)
 
 ---
 
-## 8. Lessons Learned & Future Scope
+## 8. Results, Performance Evaluation & Lessons Learned
 
-### 8.1 Key Learnings
-1. **Parachute Stability**: Incorporating a $10\%$ apex spill hole proved critical in eliminating pendulum oscillation during descent.
-2. **Sensor Fusion**: Implementing a complementary filter prevented gyroscope drift and accelerometer high-frequency motor vibration from distorting attitude angles.
-3. **LoRa Optimization**: Utilizing Spreading Factor 7 with $125\text{ kHz}$ bandwidth delivered the ideal balance between long-range RF link budget and fast packet transmission rates.
+### 8.1 Mission Results Summary
+* **Payload Safety**: **$100\%$ Intact**. Egg inspected in front of judges with zero cracks.
+* **Descent Stability**: **$3.04\text{ m/s}$ average** (Complies with Rule 3C.1 $\le 5.0\text{ m/s}$).
+* **Telemetry Reliability**: Continuous packet transmission at $2.0\text{ Hz}$ with zero data loss.
+* **Post-Landing Beaconing**: Continued transmitting for $>15\text{ seconds}$ post-touchdown (Rule 3C.3 requires $\ge 5\text{ s}$).
 
-### 8.2 Future Enhancements
-* Integration of active steerable parachute flaps for precision target touchdown.
-* Integration of an onboard micro-SD card black-box logger for redundant data recovery.
+### 8.2 Key Engineering Takeaways
+1. **Apex Venting**: The $10\%$ center spill hole was decisive in dampening aerodynamic pendulum oscillations.
+2. **Complementary Fusion**: Direct fusion of high-rate gyro rates with low-frequency gravity vector eliminated attitude drift.
+3. **RF Resilience**: Utilizing SF7 with $125\text{ kHz}$ BW and CRC provided an uninterrupted RF link.
 
 ---
 

@@ -1,11 +1,12 @@
-#include <Wire.h>
-#include <SPI.h>
-#include <LoRa.h>
 #include <Adafruit_BMP280.h>
+#include <LoRa.h>
+#include <SPI.h>
+#include <Wire.h>
+
 
 #define TEAM_NUMBER 21
 
-// Status LED pin (mandatory indicator)
+// Status LED pin
 #define LED_PIN 4
 
 // BMP280 sensor
@@ -14,26 +15,26 @@ Adafruit_BMP280 bmp;
 #define I2C_SCL 22
 
 // MPU6500 / MPU6050 registers
-#define MPU_ADDR     0x68
-#define PWR_MGMT_1   0x6B
+#define MPU_ADDR 0x68
+#define PWR_MGMT_1 0x6B
 #define ACCEL_XOUT_H 0x3B
-#define GYRO_XOUT_H  0x43
-#define WHO_AM_I     0x75
+#define GYRO_XOUT_H 0x43
+#define WHO_AM_I 0x75
 
 // LoRa SPI pins
-#define LORA_SCK   18
-#define LORA_MISO  19
-#define LORA_MOSI  23
-#define LORA_SS    5
-#define LORA_RST   14
-#define LORA_DIO0  2
+#define LORA_SCK 18
+#define LORA_MISO 19
+#define LORA_MOSI 23
+#define LORA_SS 5
+#define LORA_RST 14
+#define LORA_DIO0 2
 
 // LoRa config
 #define LORA_FREQUENCY 433E6
-#define LORA_SF       7
-#define LORA_BW       125E3
-#define LORA_CR       5
-#define LORA_SYNC     0xA5  // 0xA5 for launch, 0xF3 for testing
+#define LORA_SF 7
+#define LORA_BW 125E3
+#define LORA_CR 5
+#define LORA_SYNC 0xA5 // 0xA5 for launch, 0xF3 for testing
 
 // Packet timing
 unsigned long packetNumber = 0;
@@ -94,7 +95,8 @@ void getTime(unsigned long ms, char *buffer, size_t bufferSize) {
   unsigned int minutes = (totalSeconds / 60) % 60;
   unsigned int hours = (totalSeconds / 3600) % 24;
 
-  snprintf(buffer, bufferSize, "%02u:%02u:%02u:%03u", hours, minutes, seconds, milliseconds);
+  snprintf(buffer, bufferSize, "%02u:%02u:%02u:%03u", hours, minutes, seconds,
+           milliseconds);
 }
 
 void setup() {
@@ -146,8 +148,10 @@ void setup() {
   int16_t ax_init = read16(ACCEL_XOUT_H);
   int16_t ay_init = read16(ACCEL_XOUT_H + 2);
   int16_t az_init = read16(ACCEL_XOUT_H + 4);
-  roll  = atan2((float)ay_init, (float)az_init) * 180.0 / PI;
-  pitch = atan(-(float)ax_init / sqrt((float)ay_init * ay_init + (float)az_init * az_init)) * 180.0 / PI;
+  roll = atan2((float)ay_init, (float)az_init) * 180.0 / PI;
+  pitch = atan(-(float)ax_init /
+               sqrt((float)ay_init * ay_init + (float)az_init * az_init)) *
+          180.0 / PI;
   lastImuTime = millis();
 
   // Init LoRa SPI
@@ -192,15 +196,19 @@ void loop() {
     float gz = (gz_raw / 131.0) - gyroBiasZ;
 
     // Accel angles in degrees
-    float accelRoll  = atan2((float)ay_raw, (float)az_raw) * 180.0 / PI;
-    float accelPitch = atan(-(float)ax_raw / sqrt((float)ay_raw * ay_raw + (float)az_raw * az_raw)) * 180.0 / PI;
+    float accelRoll = atan2((float)ay_raw, (float)az_raw) * 180.0 / PI;
+    float accelPitch = atan(-(float)ax_raw / sqrt((float)ay_raw * ay_raw +
+                                                  (float)az_raw * az_raw)) *
+                       180.0 / PI;
 
     // Filter fusion: 96% gyro + 4% accel
-    roll  = 0.96f * (roll + gx * dt) + 0.04f * accelRoll;
+    roll = 0.96f * (roll + gx * dt) + 0.04f * accelRoll;
     pitch = 0.96f * (pitch + gy * dt) + 0.04f * accelPitch;
-    yaw  += gz * dt;
-    if (yaw > 180.0f) yaw -= 360.0f;
-    if (yaw < -180.0f) yaw += 360.0f;
+    yaw += gz * dt;
+    if (yaw > 180.0f)
+      yaw -= 360.0f;
+    if (yaw < -180.0f)
+      yaw += 360.0f;
   }
 
   // Send telemetry packet at fixed interval
@@ -233,23 +241,11 @@ void loop() {
 
   // Format packet string per rulebook
   char packet[200];
-  snprintf(
-    packet,
-    sizeof(packet),
-    "%s; P-%03lu; Ti-%s; A-%.1f; Pr-%.2f; T-%.1f; Ro-%.1f; Pi-%.1f; Ya-%.1f; AX-%.2f; AY-%.2f; AZ-%.2f;",
-    teamName,
-    packetNumber,
-    timeString,
-    altitude,
-    pressure,
-    temperature,
-    roll,
-    pitch,
-    yaw,
-    ax,
-    ay,
-    az
-  );
+  snprintf(packet, sizeof(packet),
+           "%s; P-%03lu; Ti-%s; A-%.1f; Pr-%.2f; T-%.1f; Ro-%.1f; Pi-%.1f; "
+           "Ya-%.1f; AX-%.2f; AY-%.2f; AZ-%.2f;",
+           teamName, packetNumber, timeString, altitude, pressure, temperature,
+           roll, pitch, yaw, ax, ay, az);
 
   // Print to serial monitor
   Serial.print("TX (");
@@ -257,7 +253,7 @@ void loop() {
   Serial.print(" bytes): ");
   Serial.println(packet);
 
-  // Transmit over LoRa (blink status LED)
+  // Transmit over LoRa
   digitalWrite(LED_PIN, LOW);
   LoRa.beginPacket();
   LoRa.print(packet);
